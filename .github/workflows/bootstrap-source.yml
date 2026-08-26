@@ -1,0 +1,61 @@
+name: Bootstrap project source
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - 'source/bundle/**'
+      - 'tools/restore-source.ps1'
+      - '.github/workflows/bootstrap-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  restore-and-commit:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Check whether source already exists
+        id: check
+        shell: pwsh
+        run: |
+          if (Test-Path 'main.go') {
+            'needed=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'Project source already exists; nothing to restore.'
+          } else {
+            'needed=true' >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Restore project source
+        if: steps.check.outputs.needed == 'true'
+        shell: pwsh
+        run: .\tools\restore-source.ps1
+
+      - name: Remove one-time bootstrap bundle
+        if: steps.check.outputs.needed == 'true'
+        shell: pwsh
+        run: |
+          if (Test-Path 'source\bundle') { Remove-Item 'source\bundle' -Recurse -Force }
+          if (Test-Path 'source\README.md') { Remove-Item 'source\README.md' -Force }
+          if ((Test-Path 'source') -and -not (Get-ChildItem 'source' -Force)) { Remove-Item 'source' -Force }
+
+      - name: Commit restored source
+        if: steps.check.outputs.needed == 'true'
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if (git diff --cached --quiet) {
+            Write-Host 'No changes to commit.'
+            exit 0
+          }
+          git commit -m 'feat: import Trade Journal v1.8.1 source'
+          git push origin HEAD:develop
