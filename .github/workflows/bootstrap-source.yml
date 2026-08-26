@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
 
+# One-time source import after bundle SHA verification.
 jobs:
   restore-and-commit:
     runs-on: windows-latest
