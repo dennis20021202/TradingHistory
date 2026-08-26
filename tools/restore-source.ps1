@@ -14,8 +14,10 @@ $tmpZip = Join-Path $repoRoot '.source-bootstrap.zip'
 
 [IO.File]::WriteAllBytes($tmpZip, $bytes)
 try {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($tmpZip, $repoRoot, $true)
+    & tar.exe -xf $tmpZip -C $repoRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "tar.exe failed to restore the source bundle (exit $LASTEXITCODE)."
+    }
 }
 finally {
     if (Test-Path $tmpZip) { Remove-Item $tmpZip -Force }
