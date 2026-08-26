@@ -1,0 +1,21 @@
+# Build outputs
+TradeJournal.exe
+*.exe
+*.zip
+*.sha256
+
+# Local runtime data
+data/
+cache/
+backups/
+exports/
+logs/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary updater files
+.update/
