@@ -1,0 +1,79 @@
+name: Bootstrap verified project source v2
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/bootstrap-source-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore-and-commit:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout latest develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Reassemble and verify source bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem 'source\bundle\part-*.b64' | Sort-Object Name
+          if (-not $parts -or $parts.Count -ne 14) { throw "Expected 14 source bundle parts, found $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+          $bytes = [Convert]::FromBase64String($b64)
+          $tmpZip = Join-Path $PWD '.source-bootstrap.zip'
+          [IO.File]::WriteAllBytes($tmpZip, $bytes)
+          $actual = (Get-FileHash $tmpZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '99c99bfe814dc0e93c580940719e0c99db63c228f22935646966fcd46abfb0a4'
+          Write-Host "source bundle sha256=$actual"
+          if ($actual -ne $expected) { throw "Source bundle SHA-256 mismatch: expected $expected, got $actual" }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($tmpZip)
+          try {
+            foreach ($entry in $archive.Entries) {
+              if ([string]::IsNullOrEmpty($entry.Name)) {
+                New-Item -ItemType Directory -Force -Path (Join-Path $PWD $entry.FullName) | Out-Null
+                continue
+              }
+              $target = Join-Path $PWD $entry.FullName
+              $parent = Split-Path -Parent $target
+              if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+            }
+          }
+          finally {
+            $archive.Dispose()
+            Remove-Item $tmpZip -Force
+          }
+
+          $required = @('main.go','sqlite_windows.go','go.mod','web\index.html','web\app.js','web\styles.css')
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) { throw "Restored source is missing required file: $file" }
+          }
+
+      - name: Remove bootstrap artifacts
+        shell: pwsh
+        run: |
+          if (Test-Path 'source\bundle') { Remove-Item 'source\bundle' -Recurse -Force }
+          if (Test-Path 'source\README.md') { Remove-Item 'source\README.md' -Force }
+          if ((Test-Path 'source') -and -not (Get-ChildItem 'source' -Force)) { Remove-Item 'source' -Force }
+          if (Test-Path 'tools\restore-source.ps1') { Remove-Item 'tools\restore-source.ps1' -Force }
+          if (Test-Path '.github\workflows\bootstrap-source.yml') { Remove-Item '.github\workflows\bootstrap-source.yml' -Force }
+          if (Test-Path '.github\workflows\bootstrap-source-v2.yml') { Remove-Item '.github\workflows\bootstrap-source-v2.yml' -Force }
+
+      - name: Commit real source tree
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: import Trade Journal v1.8.1 source'
+          git push origin HEAD:develop
