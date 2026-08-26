@@ -2,12 +2,6 @@ name: Bootstrap project source
 
 on:
   workflow_dispatch:
-  push:
-    branches: [develop]
-    paths:
-      - 'source/bundle/**'
-      - 'tools/restore-source.ps1'
-      - '.github/workflows/bootstrap-source.yml'
 
 permissions:
   contents: write
@@ -22,24 +16,11 @@ jobs:
           ref: develop
           fetch-depth: 0
 
-      - name: Check whether source already exists
-        id: check
-        shell: pwsh
-        run: |
-          if (Test-Path 'main.go') {
-            'needed=false' >> $env:GITHUB_OUTPUT
-            Write-Host 'Project source already exists; nothing to restore.'
-          } else {
-            'needed=true' >> $env:GITHUB_OUTPUT
-          }
-
       - name: Restore project source
-        if: steps.check.outputs.needed == 'true'
         shell: pwsh
         run: .\tools\restore-source.ps1
 
       - name: Remove one-time bootstrap bundle
-        if: steps.check.outputs.needed == 'true'
         shell: pwsh
         run: |
           if (Test-Path 'source\bundle') { Remove-Item 'source\bundle' -Recurse -Force }
@@ -47,7 +28,6 @@ jobs:
           if ((Test-Path 'source') -and -not (Get-ChildItem 'source' -Force)) { Remove-Item 'source' -Force }
 
       - name: Commit restored source
-        if: steps.check.outputs.needed == 'true'
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
