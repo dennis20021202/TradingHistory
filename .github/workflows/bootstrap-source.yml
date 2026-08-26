@@ -2,6 +2,10 @@ name: Bootstrap project source
 
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/bootstrap-source.yml'
 
 permissions:
   contents: write
