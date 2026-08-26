@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect project source
+        id: source
+        shell: pwsh
+        run: |
+          if (Test-Path "go.mod") {
+            "present=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "present=false" >> $env:GITHUB_OUTPUT
+            Write-Host "go.mod not present yet; release branch skeleton only."
+          }
+
+      - name: Setup Go
+        if: steps.source.outputs.present == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Format check
+        if: steps.source.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $files = gofmt -l .
+          if ($files) {
+            Write-Error "gofmt required:`n$files"
+            exit 1
+          }
+
+      - name: Test
+        if: steps.source.outputs.present == 'true'
+        run: go test ./...
+
+      - name: Build Windows portable executable
+        if: steps.source.outputs.present == 'true'
+        shell: pwsh
+        run: go build -trimpath -ldflags="-H windowsgui -s -w" -o TradeJournal.exe .
+
+      - name: Verify executable
+        if: steps.source.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          if (!(Test-Path "TradeJournal.exe")) { throw "TradeJournal.exe was not created" }
+          Get-Item TradeJournal.exe | Format-List Name,Length,LastWriteTime
