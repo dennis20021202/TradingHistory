@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Verify tag matches appVersion
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $main = Get-Content main.go -Raw
+          if ($main -notmatch 'const\s+appVersion\s*=\s*"([^"]+)"') {
+            throw "Unable to find appVersion in main.go"
+          }
+          $codeVersion = $Matches[1]
+          if ($codeVersion -ne $version) {
+            throw "Tag $tag does not match appVersion $codeVersion"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        shell: pwsh
+        run: go build -trimpath -ldflags="-H windowsgui -s -w" -o TradeJournal.exe .
+
+      - name: Build portable package and update manifest
+        id: package
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageName = "TradeJournal_Portable_v$env:VERSION_Windows_x64.zip"
+          $stage = Join-Path $PWD 'release\TradeJournalPortable'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\data","$stage\cache","$stage\backups","$stage\exports","$stage\logs" | Out-Null
+          Copy-Item TradeJournal.exe $stage
+          if (Test-Path TradeJournal.ico) { Copy-Item TradeJournal.ico $stage }
+          if (Test-Path README.md) { Copy-Item README.md "$stage\README.md" }
+          if (Test-Path CHANGELOG.md) { Copy-Item CHANGELOG.md "$stage\CHANGELOG.md" }
+
+          Compress-Archive -Path "$stage\*" -DestinationPath $packageName -Force
+          $exeHash = (Get-FileHash TradeJournal.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash $packageName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $exeUrl = "https://github.com/$env:REPO/releases/download/$env:TAG/TradeJournal.exe"
+          $zipUrl = "https://github.com/$env:REPO/releases/download/$env:TAG/$packageName"
+          $manifest = [ordered]@{
+            version = $env:VERSION
+            tag = $env:TAG
+            channel = 'stable'
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            executable = [ordered]@{
+              url = $exeUrl
+              sha256 = $exeHash
+              fileName = 'TradeJournal.exe'
+            }
+            portable = [ordered]@{
+              url = $zipUrl
+              sha256 = $zipHash
+              fileName = $packageName
+            }
+            releasePage = "https://github.com/$env:REPO/releases/tag/$env:TAG"
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content latest.json -Encoding UTF8
+          @(
+            "$exeHash  TradeJournal.exe",
+            "$zipHash  $packageName"
+          ) | Set-Content SHA256SUMS.txt -Encoding ASCII
+          "package=$packageName" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            TradeJournal.exe `
+            "$env:PACKAGE" `
+            latest.json `
+            SHA256SUMS.txt `
+            --repo "${{ github.repository }}" `
+            --title "Trade Journal ${{ github.ref_name }}" `
+            --generate-notes `
+            --verify-tag
