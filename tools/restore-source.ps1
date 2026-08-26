@@ -14,7 +14,8 @@ $tmpZip = Join-Path $repoRoot '.source-bootstrap.zip'
 
 [IO.File]::WriteAllBytes($tmpZip, $bytes)
 try {
-    Expand-Archive -Path $tmpZip -DestinationPath $repoRoot -Force
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($tmpZip, $repoRoot, $true)
 }
 finally {
     if (Test-Path $tmpZip) { Remove-Item $tmpZip -Force }
